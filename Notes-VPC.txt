@@ -1,0 +1,20 @@
+Vpccidr = 10.100.0.0/16
+Elbsubnet1 = 10.100.0.0/24 (Avilabilityzone1)
+Elbsubnet2 = 10.100.1.0/24 (Avilabilityzone2)
+
+Bastionsubnet = 10.100.2.0/24
+
+Dbsubnet1 = 10.100.3.0/24(Avilabilityzone1)
+Dbsubnet2 = 10.100.4.0/24(Avilabilityzone2)
+
+Fargatesubnet1 = 10.100.5.0/24(Avilabilityzone1)
+Fargatesubnet2 = 10.100.6.0/24(Avilabilityzone2)
+
+publicroute - Igw
+privateroute - IGW(we will remove)
+fargateroute - Natgw
+
+elbsecuritygroup - inbound(80,443) - outbound all
+bastionsecuritygroup - inbound (22) - outbound all
+dbsecuritygroup - inbound and outbound 3306 (from bastion and fargate subnet)
+fargatesecurity - inbound and outbound (22, 3306 , 443 from fargate and elb and bastion subnet)
