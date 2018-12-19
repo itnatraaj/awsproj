@@ -1,0 +1,407 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: SparK VPC
+Parameters:
+  AvailabilityZone1:
+    Description: The first availability zone in the region
+    Type: 'AWS::EC2::AvailabilityZone::Name'
+    ConstraintDescription: Must be a valid availability zone
+  AvailabilityZone2:
+    Description: The second availability zone in the region
+    Type: 'AWS::EC2::AvailabilityZone::Name'
+    ConstraintDescription: Must be a valid availability zone
+  SSHFrom:
+    Description: Limit SSH access to bastion hosts to a CIDR IP block
+    Type: String
+    MinLength: 9
+    MaxLength: 18
+    Default: 0.0.0.0/0
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: Region Availability Zones
+        Parameters:
+          - AvailabilityZone1
+          - AvailabilityZone2
+    ParameterLabels:
+      AvailabilityZone1:
+        default: Availability Zone 1
+      AvailabilityZone2:
+        default: Availability Zone 2
+Resources:
+  VPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: 10.100.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Ref 'AWS::StackName'
+  ELBSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.100.0.0/24
+      AvailabilityZone: !Ref AvailabilityZone1
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-ELBSubnet1'
+  ELBSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.100.1.0/24
+      AvailabilityZone: !Ref AvailabilityZone1
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-ELBSubnet2'
+  BastionSubnet:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.100.2.0/24
+      AvailabilityZone: !Ref AvailabilityZone1
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-BastionSubnet'
+  DbSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.100.3.0/24
+      AvailabilityZone: !Ref AvailabilityZone1
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-DbSubnet1'
+  DbSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.100.4.0/24
+      AvailabilityZone: !Ref AvailabilityZone2
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-DbSubnet2'
+  FargateSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.100.5.0/24
+      AvailabilityZone: !Ref AvailabilityZone1
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-FargateSubnet1'
+  FargateSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.100.6.0/24
+      AvailabilityZone: !Ref AvailabilityZone2
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-FargateSubnet2'
+  InternetGateway:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-igw'
+  VPCGatewayAttachment:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+  NatGateway1:
+    DependsOn: VPCGatewayAttachment
+    Type: 'AWS::EC2::NatGateway'
+    Properties:
+      AllocationId: !GetAtt 
+        - NatEIP1
+        - AllocationId
+      SubnetId: !Ref ELBSubnet1
+  NatEIP1:
+    DependsOn: VPCGatewayAttachment
+    Type: 'AWS::EC2::EIP'
+    Properties:
+      Domain: vpc
+  PublicRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-public-RT'
+  PublicRoute:
+    Type: 'AWS::EC2::Route'
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  PublicSubnetRouteTableAssociation1:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref ELBSubnet1
+      RouteTableId: !Ref PublicRouteTable
+  PublicSubnetRouteTableAssociation2:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref ELBSubnet2
+      RouteTableId: !Ref PublicRouteTable
+  PublicSubnetRouteTableAssociation3:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref BastionSubnet
+      RouteTableId: !Ref PublicRouteTable
+  PublicSubnetNetworkAclAssociation1:
+    Type: 'AWS::EC2::SubnetNetworkAclAssociation'
+    Properties:
+      SubnetId: !Ref BastionSubnet
+      NetworkAclId: !GetAtt 
+        - VPC
+        - DefaultNetworkAcl
+  PrivateRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-priavate-RT'
+  PrivateRoute:
+    Type: 'AWS::EC2::Route'
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  PrivateSubnetRouteTableAssociation1:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref DbSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+  PrivateSubnetRouteTableAssociation2:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref DbSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+  PrivateSubnetNetworkAclAssociation1:
+    Type: 'AWS::EC2::SubnetNetworkAclAssociation'
+    Properties:
+      SubnetId: !Ref DbSubnet2
+      NetworkAclId: !GetAtt 
+        - VPC
+        - DefaultNetworkAcl
+  FargateRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Fargate-RT'
+  FargateRoute:
+    Type: 'AWS::EC2::Route'
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref FargateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway1
+  FargateSubnetRouteTableAssociation1:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref FargateSubnet1
+      RouteTableId: !Ref FargateRouteTable
+  FargateSubnetRouteTableAssociation2:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref FargateSubnet2
+      RouteTableId: !Ref FargateRouteTable
+  FargateSubnetNetworkAclAssociation1:
+    Type: 'AWS::EC2::SubnetNetworkAclAssociation'
+    Properties:
+      SubnetId: !Ref FargateSubnet2
+      NetworkAclId: !GetAtt 
+        - VPC
+        - DefaultNetworkAcl
+  ELBSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enable HTTP/HTTPs ingress
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: tcp
+          ToPort: 443
+          FromPort: 443
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-ELBSecurityGroup'
+  BastionSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enable access to the bastion host
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - CidrIp: !Ref SSHFrom
+          IpProtocol: tcp
+          ToPort: 22
+          FromPort: 22
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-BastionSecurityGroup'
+  DbSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enable access to the RDS DB
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - CidrIp: 10.100.2.0/24
+          IpProtocol: tcp
+          ToPort: 3306
+          FromPort: 3306
+        - CidrIp: 10.100.5.0/24
+          IpProtocol: tcp
+          ToPort: 3306
+          FromPort: 3306
+        - CidrIp: 10.100.6.0/24
+          IpProtocol: tcp
+          ToPort: 3306
+          FromPort: 3306
+      SecurityGroupEgress:
+        - CidrIp: 10.100.0.0/16
+          IpProtocol: tcp
+          ToPort: 3306
+          FromPort: 3306
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-DbSecurityGroup'
+  FargateSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enable access to the RDS DB
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - CidrIp: 10.0.0.0/0
+          IpProtocol: tcp
+          ToPort: 443
+          FromPort: 443
+        - CidrIp: 10.0.1.0/0
+          IpProtocol: tcp
+          ToPort: 443
+          FromPort: 443
+        - CidrIp: 10.0.2.0/0
+          IpProtocol: tcp
+          ToPort: 22
+          FromPort: 22
+        - CidrIp: 10.0.3.0/0
+          IpProtocol: tcp
+          ToPort: 3306
+          FromPort: 3306
+        - CidrIp: 10.0.4.0/0
+          IpProtocol: tcp
+          ToPort: 3306
+          FromPort: 3306
+      SecurityGroupEgress:
+        - CidrIp: 10.100.0.0/24
+          IpProtocol: tcp
+          ToPort: 443
+          FromPort: 443
+        - CidrIp: 10.100.1.0/24
+          IpProtocol: tcp
+          ToPort: 443
+          FromPort: 443
+        - CidrIp: 10.100.2.0/24
+          IpProtocol: tcp
+          ToPort: 22
+          FromPort: 22
+        - CidrIp: 10.0.3.0/24
+          IpProtocol: tcp
+          ToPort: 3306
+          FromPort: 3306
+        - CidrIp: 10.0.4.0/24
+          IpProtocol: tcp
+          ToPort: 3306
+          FromPort: 3306
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-FargateSecurityGroup'
+Outputs:
+  Name:
+    Description: VPC Stack Name
+    Value: !Ref 'AWS::StackName'
+    Export:
+      Name: !Sub '${AWS::StackName}-Name'
+  VPCId:
+    Description: VPC ID
+    Value: !Ref VPC
+    Export:
+      Name: !Sub '${AWS::StackName}-VpcID'
+  ELBSubnet1:
+    Description: ELBSubnet1 ID
+    Value: !Ref ELBSubnet1
+    Export:
+      Name: !Sub '${AWS::StackName}-ELBSubnet1ID'
+  ELBSubnet2:
+    Description: ELBSubnet2 ID
+    Value: !Ref ELBSubnet2
+    Export:
+      Name: !Sub '${AWS::StackName}-ELBSubnet2ID'
+  BastionSubnet:
+    Description: BastionSubnet ID
+    Value: !Ref BastionSubnet
+    Export:
+      Name: !Sub '${AWS::StackName}-BastionSubnetID'
+  DbSubnet1:
+    Description: DbSubnet1 ID
+    Value: !Ref DbSubnet1
+    Export:
+      Name: !Sub '${AWS::StackName}-DbSubnet1ID'
+  DbSubnet2:
+    Description: DBSubnet2 ID
+    Value: !Ref DbSubnet2
+    Export:
+      Name: !Sub '${AWS::StackName}-DbSubnet2ID'
+  FargateSubnet1:
+    Description: FargateSubnet1 ID
+    Value: !Ref FargateSubnet1
+    Export:
+      Name: !Sub '${AWS::StackName}-FargateSubnet1'
+  FargateSubnet2:
+    Description: FargateSubnet2 ID
+    Value: !Ref FargateSubnet2
+    Export:
+      Name: !Sub '${AWS::StackName}-FargateSubnet2'
+  ELBSecurityGroup:
+    Description: Security group ID for Internet-facing ELB
+    Value: !GetAtt 
+      - ELBSecurityGroup
+      - GroupId
+    Export:
+      Name: !Sub '${AWS::StackName}-ELBSecurityGroupID'
+  DbSecurityGroup:
+    Description: Security group ID for RDS
+    Value: !GetAtt 
+      - DbSecurityGroup
+      - GroupId
+    Export:
+      Name: !Sub '${AWS::StackName}-DBSecurityGroupID'
+  BastionSecurityGroup:
+    Description: Security group ID for Bastion PCs
+    Value: !GetAtt 
+      - BastionSecurityGroup
+      - GroupId
+    Export:
+      Name: !Sub '${AWS::StackName}-BastionSecurityGroupID'
+  FargateSecurityGroup:
+    Description: Security group ID for Containers
+    Value: !GetAtt 
+      - FargateSecurityGroup
+      - GroupId
+    Export:
+      Name: !Sub '${AWS::StackName}-FargateSecurityGroupID'
